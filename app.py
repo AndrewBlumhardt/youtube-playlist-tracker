@@ -40,8 +40,12 @@ if "latest_combined_df" not in st.session_state:
     st.session_state["latest_combined_df"] = pd.DataFrame()
 if "api_verified" not in st.session_state:
     st.session_state["api_verified"] = False
+if "api_verify_error" not in st.session_state:
+    st.session_state["api_verify_error"] = ""
 if "show_discovery_history" not in st.session_state:
     st.session_state["show_discovery_history"] = False
+if "last_discovery_channel" not in st.session_state:
+    st.session_state["last_discovery_channel"] = ""
 
 
 def _get_default_api_key() -> str:
@@ -58,7 +62,7 @@ st.markdown(
     """
 <style>
 section.main > div.block-container {
-    padding-top: 1rem;
+    padding-top: 0.25rem;
 }
 div[data-testid="stAppViewContainer"] {
     background: radial-gradient(circle at 15% 20%, #eef6ff 0%, #f9fbff 40%, #ffffff 100%);
@@ -109,24 +113,29 @@ api_key = api_col.text_input(
 if verify_col.button("Verify API Key"):
     if not api_key.strip():
         st.session_state["api_verified"] = False
-        st.error("Enter an API key first.")
+        st.session_state["api_verify_error"] = "Enter an API key first."
     else:
         is_valid, message = verify_api_key(api_key.strip())
         st.session_state["api_verified"] = is_valid
-        if is_valid:
-            st.success(f"✅ {message}")
-        else:
-            st.error(f"❌ {message}")
+        st.session_state["api_verify_error"] = "" if is_valid else message
 
-if st.session_state["api_verified"]:
-    status_col.success("API key verified for this session.")
+status_text = "✅" if st.session_state["api_verified"] else ""
+if st.session_state["api_verify_error"]:
+    status_text = "❌"
+status_col.markdown(f"### {status_text}")
+if st.session_state["api_verify_error"]:
+    st.caption(st.session_state["api_verify_error"])
 
-st.subheader("Playlist Discovery")
+st.subheader("Channel Discovery")
 user_config = load_user_config()
 if not st.session_state["discovered_playlists"] and user_config.get("last_discovered_playlists"):
     st.session_state["discovered_playlists"] = user_config.get("last_discovered_playlists", [])
 if not st.session_state["show_discovery_history"]:
     st.session_state["show_discovery_history"] = bool(user_config.get("show_discovery_history", False))
+
+saved_channels = user_config.get("saved_channels", [])
+channel_pick_options = ["(enter new channel)"] + saved_channels
+selected_saved_channel = st.selectbox("Saved channels", options=channel_pick_options)
 
 channel_input = st.text_input(
     "Channel URL, handle (@name), or channel ID",
@@ -134,23 +143,29 @@ channel_input = st.text_input(
     value=user_config.get("last_channel_input", ""),
 )
 
-discover_clicked = st.button("Discover Public Playlists")
-if discover_clicked:
-    if not api_key.strip():
-        st.error("Please provide a YouTube Data API key before discovery.")
-        st.stop()
+effective_channel = channel_input.strip()
+if selected_saved_channel != "(enter new channel)":
+    effective_channel = selected_saved_channel
 
-    with st.spinner("Discovering playlists..."):
-        try:
-            playlists = discover_channel_playlists(api_key=api_key.strip(), channel_input=channel_input)
-        except YouTubeApiError as exc:
-            st.error(f"YouTube API error: {exc}")
-            st.stop()
+if effective_channel and effective_channel not in saved_channels:
+    save_user_preferences(saved_channels=saved_channels + [effective_channel])
 
-    st.session_state["discovered_playlists"] = playlists
-    st.session_state["selected_playlists"] = [item["playlist_id"] for item in playlists]
-    save_user_preferences(last_channel_input=channel_input, last_discovered_playlists=playlists)
-    st.success(f"Discovered {len(playlists)} playlists.")
+should_discover = bool(effective_channel and api_key.strip())
+if should_discover:
+    if st.session_state["last_discovery_channel"] != effective_channel:
+        with st.spinner("Loading playlists for channel..."):
+            try:
+                playlists = discover_channel_playlists(api_key=api_key.strip(), channel_input=effective_channel)
+                st.session_state["discovered_playlists"] = playlists
+                st.session_state["selected_playlists"] = [item["playlist_id"] for item in playlists]
+                st.session_state["last_discovery_channel"] = effective_channel
+                save_user_preferences(
+                    last_channel_input=effective_channel,
+                    last_discovered_playlists=playlists,
+                    saved_channels=saved_channels + [effective_channel],
+                )
+            except YouTubeApiError as exc:
+                st.error(f"Channel discovery error: {exc}")
 
 discovered = st.session_state["discovered_playlists"]
 discovered_ids = [item["playlist_id"] for item in discovered]
@@ -204,7 +219,7 @@ if st.session_state["show_discovery_history"]:
 
 if action_col3.button("Save Playlist Selection", use_container_width=True):
     save_user_config(selected_discovered_playlists)
-    save_user_preferences(saved_playlist_ids=selected_discovered_playlists, last_channel_input=channel_input)
+    save_user_preferences(saved_playlist_ids=selected_discovered_playlists, last_channel_input=effective_channel)
     st.success("Saved playlist selection to local config.")
 
 playlist_input = st.text_input(
@@ -237,11 +252,12 @@ if fetch_clicked:
 
     save_user_preferences(
         saved_playlist_ids=selected_discovered_playlists,
-        last_channel_input=channel_input,
+        last_channel_input=effective_channel,
         last_playlist_input=playlist_input,
         save_snapshot_default=persist_snapshot,
         last_history_playlist_id=user_config.get("last_history_playlist_id", ""),
         last_discovered_playlists=discovered,
+        saved_channels=saved_channels + ([effective_channel] if effective_channel else []),
     )
 
     all_frames = []

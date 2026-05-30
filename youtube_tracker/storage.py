@@ -23,6 +23,7 @@ def load_user_config() -> Dict:
     if not CONFIG_FILE.exists():
         return {
             "saved_playlist_ids": [],
+            "saved_channels": [],
             "last_channel_input": "",
             "last_playlist_input": "",
             "save_snapshot_default": False,
@@ -36,6 +37,7 @@ def load_user_config() -> Dict:
     except (json.JSONDecodeError, OSError):
         return {
             "saved_playlist_ids": [],
+            "saved_channels": [],
             "last_channel_input": "",
             "last_playlist_input": "",
             "save_snapshot_default": False,
@@ -47,8 +49,12 @@ def load_user_config() -> Dict:
     playlist_ids = content.get("saved_playlist_ids", [])
     if not isinstance(playlist_ids, list):
         playlist_ids = []
+    saved_channels = content.get("saved_channels", [])
+    if not isinstance(saved_channels, list):
+        saved_channels = []
     return {
         "saved_playlist_ids": [str(item) for item in playlist_ids],
+        "saved_channels": [str(item) for item in saved_channels if str(item).strip()],
         "last_channel_input": str(content.get("last_channel_input", "") or ""),
         "last_playlist_input": str(content.get("last_playlist_input", "") or ""),
         "save_snapshot_default": bool(content.get("save_snapshot_default", False)),
@@ -74,6 +80,7 @@ def save_user_preferences(
     last_history_playlist_id: str | None = None,
     last_discovered_playlists: List[Dict] | None = None,
     show_discovery_history: bool | None = None,
+    saved_channels: List[str] | None = None,
 ) -> None:
     _ensure_data_dir()
     payload = load_user_config()
@@ -92,6 +99,9 @@ def save_user_preferences(
         payload["last_discovered_playlists"] = last_discovered_playlists
     if show_discovery_history is not None:
         payload["show_discovery_history"] = bool(show_discovery_history)
+    if saved_channels is not None:
+        cleaned = sorted({str(item).strip() for item in saved_channels if str(item).strip()})
+        payload["saved_channels"] = cleaned
 
     CONFIG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
