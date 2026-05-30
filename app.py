@@ -1,10 +1,12 @@
 import os
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
 from youtube_tracker.storage import (
     append_snapshot,
+    estimate_playlist_history,
     load_snapshot_history,
     load_user_config,
     save_user_config,
@@ -14,6 +16,7 @@ from youtube_tracker.youtube_api import (
     discover_channel_playlists,
     extract_playlist_id,
     fetch_playlist_videos_with_stats,
+    verify_api_key,
 )
 
 
@@ -28,6 +31,8 @@ if "selected_playlists" not in st.session_state:
     st.session_state["selected_playlists"] = []
 if "latest_combined_df" not in st.session_state:
     st.session_state["latest_combined_df"] = pd.DataFrame()
+if "api_verified" not in st.session_state:
+    st.session_state["api_verified"] = False
 
 
 def _get_default_api_key() -> str:
@@ -76,15 +81,6 @@ link_col.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown(
-    """
-<div class="yt-card yt-note">
-Tip: Discover playlists first, then use multi-select chips to choose what to run. You can still add one manual playlist URL/ID for ad-hoc testing.
-</div>
-""",
-    unsafe_allow_html=True,
-)
-
 st.subheader("API Configuration")
 api_key = st.text_input(
     "YouTube Data API key",
@@ -96,9 +92,21 @@ api_key = st.text_input(
         f"[Google setup guide]({GOOGLE_API_HELP_URL})."
     ),
 )
-link_col1, link_col2 = st.columns(2)
-link_col1.link_button("Get API Key Instructions (Repo)", README_API_HELP_URL)
-link_col2.link_button("Google API Setup Guide", GOOGLE_API_HELP_URL)
+verify_col, status_col = st.columns([1, 3])
+if verify_col.button("Verify API Key"):
+    if not api_key.strip():
+        st.session_state["api_verified"] = False
+        st.error("Enter an API key first.")
+    else:
+        is_valid, message = verify_api_key(api_key.strip())
+        st.session_state["api_verified"] = is_valid
+        if is_valid:
+            st.success(f"✅ {message}")
+        else:
+            st.error(f"❌ {message}")
+
+if st.session_state["api_verified"]:
+    status_col.success("API key verified for this session.")
 
 st.subheader("Playlist Discovery")
 channel_input = st.text_input(
@@ -150,20 +158,18 @@ metric_col1, metric_col2 = st.columns(2)
 metric_col1.metric("Discovered Playlists", len(discovered_ids))
 metric_col2.metric("Selected For Retrieval", len(selected_discovered_playlists))
 
-col1, col2 = st.columns(2)
-if col1.button("Select All Discovered"):
+action_col1, action_col2, action_col3 = st.columns(3)
+if action_col1.button("Select All Discovered", use_container_width=True):
     st.session_state["selected_playlists"] = discovered_ids
     st.rerun()
-if col2.button("Clear Selection"):
+if action_col2.button("Clear Selection", use_container_width=True):
     st.session_state["selected_playlists"] = []
     st.rerun()
 
-save_config_clicked = st.button("Save Playlist Selection")
-if save_config_clicked:
+if action_col3.button("Save Playlist Selection", use_container_width=True):
     save_user_config(selected_discovered_playlists)
     st.success("Saved playlist selection to local config.")
 
-st.subheader("Playlist Stats Retrieval")
 playlist_input = st.text_input(
     "Optional manual playlist URL or playlist ID",
     placeholder="https://www.youtube.com/playlist?list=PL... or PL...",
@@ -280,6 +286,31 @@ if fetch_clicked:
             mime="text/csv",
         )
 
+        totals_df = (
+            combined_df.groupby(["playlist_id", "playlist_title"], as_index=False)
+            .agg(
+                videos=("video_id", "nunique"),
+                total_views=("view_count", "sum"),
+                total_likes=("like_count", "sum"),
+                total_comments=("comment_count", "sum"),
+            )
+            .sort_values("total_views", ascending=False)
+        )
+        grand_total = pd.DataFrame(
+            [
+                {
+                    "playlist_id": "ALL",
+                    "playlist_title": "Grand Total",
+                    "videos": int(combined_df["video_id"].nunique()),
+                    "total_views": int(combined_df["view_count"].sum()),
+                    "total_likes": int(combined_df["like_count"].sum()),
+                    "total_comments": int(combined_df["comment_count"].sum()),
+                }
+            ]
+        )
+        st.subheader("Playlist Totals")
+        st.dataframe(pd.concat([totals_df, grand_total], ignore_index=True), width="stretch", hide_index=True)
+
 latest_df = st.session_state["latest_combined_df"]
 if not latest_df.empty:
     st.subheader("Latest Retrieval Snapshot")
@@ -299,7 +330,19 @@ else:
         options=playlist_filter_options,
     )
 
+    estimate_col1, estimate_col2 = st.columns([2, 1])
+    months_back = estimate_col1.slider("Estimate months back", min_value=3, max_value=24, value=12, step=1)
+    if estimate_col2.button("Estimate Playlist History", use_container_width=True):
+        result = estimate_playlist_history(selected_history_playlist, months_back=months_back)
+        st.success(
+            f"Estimated {result['estimated_rows']} rows for {result['videos']} videos over {result['months']} months."
+        )
+        history_df = load_snapshot_history()
+
     filtered_history = history_df[history_df["playlist_id"] == selected_history_playlist].copy()
+    filtered_history["snapshot_time"] = pd.to_datetime(filtered_history["snapshot_time"], errors="coerce", utc=True)
+    filtered_history = filtered_history.dropna(subset=["snapshot_time"])
+
     grouped = (
         filtered_history.groupby("snapshot_time", as_index=False)
         .agg(
@@ -311,3 +354,64 @@ else:
         .sort_values("snapshot_time", ascending=False)
     )
     st.dataframe(grouped, width="stretch")
+
+    st.subheader("History Timeline / Histogram")
+    if filtered_history.empty:
+        st.caption("No history data for selected playlist.")
+    else:
+        per_video_df = filtered_history.copy()
+        per_video_df["video_label"] = per_video_df["title"].fillna("").astype(str)
+        per_video_df.loc[per_video_df["video_label"].str.strip() == "", "video_label"] = per_video_df["video_id"]
+
+        video_count_limit = st.slider("Max videos to plot", min_value=3, max_value=30, value=12, step=1)
+        top_videos = (
+            per_video_df.groupby(["video_id", "video_label"], as_index=False)["view_count"].max()
+            .sort_values("view_count", ascending=False)
+            .head(video_count_limit)
+        )
+        plot_df = per_video_df[per_video_df["video_id"].isin(top_videos["video_id"])].copy()
+
+        view_mode = st.radio("Visualization", options=["Timeline (per video)", "Histogram (totals)"])
+        if view_mode == "Timeline (per video)":
+            timeline_chart = (
+                alt.Chart(plot_df)
+                .mark_line(point=True)
+                .encode(
+                    x=alt.X("snapshot_time:T", title="Snapshot Time"),
+                    y=alt.Y("view_count:Q", title="Views"),
+                    color=alt.Color("video_label:N", title="Video"),
+                    strokeDash=alt.StrokeDash("data_source:N", title="Data Type"),
+                    tooltip=[
+                        alt.Tooltip("snapshot_time:T", title="Time"),
+                        alt.Tooltip("video_label:N", title="Video"),
+                        alt.Tooltip("data_source:N", title="Data Type"),
+                        alt.Tooltip("view_count:Q", title="Views"),
+                        alt.Tooltip("like_count:Q", title="Likes"),
+                        alt.Tooltip("comment_count:Q", title="Comments"),
+                    ],
+                )
+                .properties(height=420)
+            )
+            st.altair_chart(timeline_chart, use_container_width=True)
+        else:
+            hist_df = (
+                plot_df.groupby(["snapshot_time", "data_source"], as_index=False)
+                .agg(total_views=("view_count", "sum"))
+                .sort_values("snapshot_time", ascending=True)
+            )
+            histogram_chart = (
+                alt.Chart(hist_df)
+                .mark_bar()
+                .encode(
+                    x=alt.X("snapshot_time:T", title="Snapshot Time"),
+                    y=alt.Y("total_views:Q", title="Total Views"),
+                    color=alt.Color("data_source:N", title="Data Type"),
+                    tooltip=[
+                        alt.Tooltip("snapshot_time:T", title="Time"),
+                        alt.Tooltip("data_source:N", title="Data Type"),
+                        alt.Tooltip("total_views:Q", title="Total Views"),
+                    ],
+                )
+                .properties(height=420)
+            )
+            st.altair_chart(histogram_chart, use_container_width=True)

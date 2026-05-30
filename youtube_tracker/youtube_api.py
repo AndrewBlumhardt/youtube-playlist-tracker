@@ -172,6 +172,23 @@ def discover_channel_playlists(api_key: str, channel_input: str) -> List[Dict[st
     return playlists
 
 
+def verify_api_key(api_key: str) -> Tuple[bool, str]:
+    """Validate API key by making a lightweight YouTube Data API request."""
+    try:
+        _get(
+            "videoCategories",
+            {
+                "part": "snippet",
+                "regionCode": "US",
+                "maxResults": "1",
+                "key": api_key,
+            },
+        )
+        return (True, "API key is valid.")
+    except YouTubeApiError as exc:
+        return (False, f"API key check failed: {exc}")
+
+
 def fetch_playlist_videos_with_stats(api_key: str, playlist_id: str) -> pd.DataFrame:
     """Fetch playlist video metadata + statistics and return a dataframe."""
     video_ids = list(_iter_playlist_video_ids(api_key=api_key, playlist_id=playlist_id))
