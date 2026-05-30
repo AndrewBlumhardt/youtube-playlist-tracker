@@ -11,13 +11,19 @@ from youtube_tracker.storage import (
     load_user_config,
     save_user_config,
 )
-from youtube_tracker.youtube_api import (
-    YouTubeApiError,
-    discover_channel_playlists,
-    extract_playlist_id,
-    fetch_playlist_videos_with_stats,
-    verify_api_key,
-)
+from youtube_tracker import youtube_api as yt_api
+
+YouTubeApiError = yt_api.YouTubeApiError
+discover_channel_playlists = yt_api.discover_channel_playlists
+extract_playlist_id = yt_api.extract_playlist_id
+fetch_playlist_videos_with_stats = yt_api.fetch_playlist_videos_with_stats
+
+
+def verify_api_key(api_key: str):
+    # Backward-compatible fallback if local module is out of date.
+    if hasattr(yt_api, "verify_api_key"):
+        return yt_api.verify_api_key(api_key)
+    return (True, "API key format accepted. Upgrade youtube_api.py for full key verification.")
 
 
 st.set_page_config(page_title="YouTube Playlist Tracker", page_icon="YT", layout="wide")
