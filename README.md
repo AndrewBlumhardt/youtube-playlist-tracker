@@ -4,6 +4,14 @@ Explore public YouTube playlist performance with two run options:
 1. Streamlit web app in VS Code (interactive dashboard).
 2. Jupyter notebook in VS Code (run-once validation and snapshots).
 
+<p align="center">
+  <img src="images/S0.png" width="70%" alt="API configuration and channel discovery" />
+</p>
+
+<p align="center">
+  <img src="images/S1.png" width="70%" alt="Playlist history timeline chart" />
+</p>
+
 ## Run Options
 
 ### Option A: Streamlit Web App (Primary)
