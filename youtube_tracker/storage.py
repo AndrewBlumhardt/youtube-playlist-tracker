@@ -21,22 +21,66 @@ def _ensure_data_dir() -> None:
 def load_user_config() -> Dict:
     _ensure_data_dir()
     if not CONFIG_FILE.exists():
-        return {"saved_playlist_ids": []}
+        return {
+            "saved_playlist_ids": [],
+            "last_channel_input": "",
+            "last_playlist_input": "",
+            "save_snapshot_default": False,
+            "last_history_playlist_id": "",
+        }
 
     try:
         content = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return {"saved_playlist_ids": []}
+        return {
+            "saved_playlist_ids": [],
+            "last_channel_input": "",
+            "last_playlist_input": "",
+            "save_snapshot_default": False,
+            "last_history_playlist_id": "",
+        }
 
     playlist_ids = content.get("saved_playlist_ids", [])
     if not isinstance(playlist_ids, list):
         playlist_ids = []
-    return {"saved_playlist_ids": [str(item) for item in playlist_ids]}
+    return {
+        "saved_playlist_ids": [str(item) for item in playlist_ids],
+        "last_channel_input": str(content.get("last_channel_input", "") or ""),
+        "last_playlist_input": str(content.get("last_playlist_input", "") or ""),
+        "save_snapshot_default": bool(content.get("save_snapshot_default", False)),
+        "last_history_playlist_id": str(content.get("last_history_playlist_id", "") or ""),
+    }
 
 
 def save_user_config(saved_playlist_ids: List[str]) -> None:
     _ensure_data_dir()
-    payload = {"saved_playlist_ids": sorted(set(saved_playlist_ids))}
+    payload = load_user_config()
+    payload["saved_playlist_ids"] = sorted(set(saved_playlist_ids))
+    CONFIG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def save_user_preferences(
+    *,
+    saved_playlist_ids: List[str] | None = None,
+    last_channel_input: str | None = None,
+    last_playlist_input: str | None = None,
+    save_snapshot_default: bool | None = None,
+    last_history_playlist_id: str | None = None,
+) -> None:
+    _ensure_data_dir()
+    payload = load_user_config()
+
+    if saved_playlist_ids is not None:
+        payload["saved_playlist_ids"] = sorted(set(saved_playlist_ids))
+    if last_channel_input is not None:
+        payload["last_channel_input"] = last_channel_input.strip()
+    if last_playlist_input is not None:
+        payload["last_playlist_input"] = last_playlist_input.strip()
+    if save_snapshot_default is not None:
+        payload["save_snapshot_default"] = bool(save_snapshot_default)
+    if last_history_playlist_id is not None:
+        payload["last_history_playlist_id"] = last_history_playlist_id.strip()
+
     CONFIG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 

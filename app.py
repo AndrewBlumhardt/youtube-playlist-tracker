@@ -10,6 +10,7 @@ from youtube_tracker.storage import (
     load_snapshot_history,
     load_user_config,
     save_user_config,
+    save_user_preferences,
 )
 from youtube_tracker import youtube_api as yt_api
 
@@ -94,6 +95,7 @@ api_key = st.text_input(
     value=_get_default_api_key(),
     help=(
         "For local testing, enter the key here or set YOUTUBE_API_KEY in .streamlit/secrets.toml. "
+        "Your browser may offer to save it securely as a password. "
         f"Need help? [Repo instructions]({README_API_HELP_URL}) or "
         f"[Google setup guide]({GOOGLE_API_HELP_URL})."
     ),
@@ -115,9 +117,11 @@ if st.session_state["api_verified"]:
     status_col.success("API key verified for this session.")
 
 st.subheader("Playlist Discovery")
+user_config = load_user_config()
 channel_input = st.text_input(
     "Channel URL, handle (@name), or channel ID",
     placeholder="https://www.youtube.com/@channelname or UC...",
+    value=user_config.get("last_channel_input", ""),
 )
 
 discover_clicked = st.button("Discover Public Playlists")
@@ -135,9 +139,9 @@ if discover_clicked:
 
     st.session_state["discovered_playlists"] = playlists
     st.session_state["selected_playlists"] = [item["playlist_id"] for item in playlists]
+    save_user_preferences(last_channel_input=channel_input)
     st.success(f"Discovered {len(playlists)} playlists.")
 
-user_config = load_user_config()
 discovered = st.session_state["discovered_playlists"]
 discovered_ids = [item["playlist_id"] for item in discovered]
 saved_defaults = [item for item in user_config.get("saved_playlist_ids", []) if item in discovered_ids]
@@ -174,15 +178,17 @@ if action_col2.button("Clear Selection", use_container_width=True):
 
 if action_col3.button("Save Playlist Selection", use_container_width=True):
     save_user_config(selected_discovered_playlists)
+    save_user_preferences(saved_playlist_ids=selected_discovered_playlists, last_channel_input=channel_input)
     st.success("Saved playlist selection to local config.")
 
 playlist_input = st.text_input(
     "Optional manual playlist URL or playlist ID",
     placeholder="https://www.youtube.com/playlist?list=PL... or PL...",
+    value=user_config.get("last_playlist_input", ""),
 )
 manual_playlist_id = extract_playlist_id(playlist_input) if playlist_input.strip() else ""
 
-persist_snapshot = st.checkbox("Save snapshot to local history", value=False)
+persist_snapshot = st.checkbox("Save snapshot to local history", value=bool(user_config.get("save_snapshot_default", False)))
 
 fetch_clicked = st.button("Fetch Playlist Statistics", type="primary")
 
@@ -202,6 +208,14 @@ if fetch_clicked:
     if playlist_input.strip() and not manual_playlist_id:
         st.error("Manual playlist input is not a valid playlist URL or playlist ID.")
         st.stop()
+
+    save_user_preferences(
+        saved_playlist_ids=selected_discovered_playlists,
+        last_channel_input=channel_input,
+        last_playlist_input=playlist_input,
+        save_snapshot_default=persist_snapshot,
+        last_history_playlist_id=user_config.get("last_history_playlist_id", ""),
+    )
 
     all_frames = []
     with st.spinner("Loading playlist videos and statistics..."):
@@ -334,7 +348,11 @@ else:
     selected_history_playlist = st.selectbox(
         "Playlist for history",
         options=playlist_filter_options,
+        index=playlist_filter_options.index(user_config.get("last_history_playlist_id", playlist_filter_options[0]))
+        if user_config.get("last_history_playlist_id", "") in playlist_filter_options
+        else 0,
     )
+    save_user_preferences(last_history_playlist_id=selected_history_playlist)
 
     estimate_col1, estimate_col2 = st.columns([2, 1])
     months_back = estimate_col1.slider("Estimate months back", min_value=3, max_value=24, value=12, step=1)
