@@ -40,6 +40,8 @@ if "latest_combined_df" not in st.session_state:
     st.session_state["latest_combined_df"] = pd.DataFrame()
 if "api_verified" not in st.session_state:
     st.session_state["api_verified"] = False
+if "show_discovery_history" not in st.session_state:
+    st.session_state["show_discovery_history"] = False
 
 
 def _get_default_api_key() -> str:
@@ -89,10 +91,14 @@ link_col.markdown(
 )
 
 st.subheader("API Configuration")
-api_key = st.text_input(
+if "api_key_value" not in st.session_state:
+    st.session_state["api_key_value"] = _get_default_api_key()
+
+api_col, verify_col, status_col = st.columns([4, 1, 1])
+api_key = api_col.text_input(
     "YouTube Data API key",
     type="password",
-    value=_get_default_api_key(),
+    key="api_key_value",
     help=(
         "For local testing, enter the key here or set YOUTUBE_API_KEY in .streamlit/secrets.toml. "
         "Your browser may offer to save it securely as a password. "
@@ -100,7 +106,6 @@ api_key = st.text_input(
         f"[Google setup guide]({GOOGLE_API_HELP_URL})."
     ),
 )
-verify_col, status_col = st.columns([1, 3])
 if verify_col.button("Verify API Key"):
     if not api_key.strip():
         st.session_state["api_verified"] = False
@@ -139,11 +144,13 @@ if discover_clicked:
 
     st.session_state["discovered_playlists"] = playlists
     st.session_state["selected_playlists"] = [item["playlist_id"] for item in playlists]
-    save_user_preferences(last_channel_input=channel_input)
+    save_user_preferences(last_channel_input=channel_input, last_discovered_playlists=playlists)
     st.success(f"Discovered {len(playlists)} playlists.")
 
 discovered = st.session_state["discovered_playlists"]
 discovered_ids = [item["playlist_id"] for item in discovered]
+cached_discovered = user_config.get("last_discovered_playlists", [])
+cached_discovered_df = pd.DataFrame(cached_discovered) if cached_discovered else pd.DataFrame()
 saved_defaults = [item for item in user_config.get("saved_playlist_ids", []) if item in discovered_ids]
 if discovered_ids and not st.session_state["selected_playlists"]:
     st.session_state["selected_playlists"] = saved_defaults or discovered_ids
@@ -175,6 +182,19 @@ if action_col1.button("Select All Discovered", use_container_width=True):
 if action_col2.button("Clear Selection", use_container_width=True):
     st.session_state["selected_playlists"] = []
     st.rerun()
+
+show_history_col1, show_history_col2 = st.columns([1, 4])
+st.session_state["show_discovery_history"] = show_history_col1.checkbox(
+    "Show discovery history",
+    value=bool(st.session_state["show_discovery_history"]),
+)
+if st.session_state["show_discovery_history"]:
+    if not cached_discovered_df.empty:
+        st.caption("Previously discovered playlists")
+        display_cols = [col for col in ["title", "playlist_id", "video_count"] if col in cached_discovered_df.columns]
+        st.dataframe(cached_discovered_df[display_cols], width="stretch", hide_index=True)
+    else:
+        st.caption("No saved discovery history yet.")
 
 if action_col3.button("Save Playlist Selection", use_container_width=True):
     save_user_config(selected_discovered_playlists)
@@ -215,6 +235,7 @@ if fetch_clicked:
         last_playlist_input=playlist_input,
         save_snapshot_default=persist_snapshot,
         last_history_playlist_id=user_config.get("last_history_playlist_id", ""),
+        last_discovered_playlists=discovered,
     )
 
     all_frames = []
