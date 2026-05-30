@@ -19,6 +19,9 @@ from youtube_tracker.youtube_api import (
 
 st.set_page_config(page_title="YouTube Playlist Tracker", page_icon="YT", layout="wide")
 
+README_API_HELP_URL = "https://github.com/AndrewBlumhardt/youtube-playlist-tracker#api-setup-and-lookup-instructions"
+GOOGLE_API_HELP_URL = "https://developers.google.com/youtube/registering_an_application"
+
 if "discovered_playlists" not in st.session_state:
     st.session_state["discovered_playlists"] = []
 if "selected_playlists" not in st.session_state:
@@ -87,8 +90,15 @@ api_key = st.text_input(
     "YouTube Data API key",
     type="password",
     value=_get_default_api_key(),
-    help="For local testing, enter the key here or set YOUTUBE_API_KEY in .streamlit/secrets.toml.",
+    help=(
+        "For local testing, enter the key here or set YOUTUBE_API_KEY in .streamlit/secrets.toml. "
+        f"Need help? [Repo instructions]({README_API_HELP_URL}) or "
+        f"[Google setup guide]({GOOGLE_API_HELP_URL})."
+    ),
 )
+link_col1, link_col2 = st.columns(2)
+link_col1.link_button("Get API Key Instructions (Repo)", README_API_HELP_URL)
+link_col2.link_button("Google API Setup Guide", GOOGLE_API_HELP_URL)
 
 st.subheader("Playlist Discovery")
 channel_input = st.text_input(

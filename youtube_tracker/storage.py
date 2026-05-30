@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
@@ -49,6 +50,7 @@ def append_snapshot(playlist_id: str, playlist_title: str, df: pd.DataFrame) -> 
         for row in rows:
             record = {
                 "snapshot_time": snapshot_time,
+                "data_source": "actual",
                 "playlist_id": playlist_id,
                 "playlist_title": playlist_title,
                 **row,
@@ -77,4 +79,113 @@ def load_snapshot_history() -> pd.DataFrame:
     if not records:
         return pd.DataFrame()
 
-    return pd.DataFrame(records)
+    df = pd.DataFrame(records)
+    if "data_source" not in df.columns:
+        df["data_source"] = "actual"
+    else:
+        df["data_source"] = df["data_source"].fillna("actual")
+    return df
+
+
+def _write_snapshot_history(df: pd.DataFrame) -> None:
+    _ensure_data_dir()
+    if df.empty:
+        SNAPSHOT_FILE.write_text("", encoding="utf-8")
+        return
+
+    with SNAPSHOT_FILE.open("w", encoding="utf-8") as handle:
+        for _, row in df.iterrows():
+            record = {}
+            for key, value in row.items():
+                if pd.isna(value):
+                    record[key] = None
+                elif isinstance(value, pd.Timestamp):
+                    record[key] = value.isoformat()
+                else:
+                    record[key] = value
+            handle.write(json.dumps(record) + "\n")
+
+
+def _estimated_series(current_value: int, periods: int, rng: random.Random) -> List[int]:
+    if periods <= 0:
+        return []
+    if current_value <= 0:
+        return [0] * periods
+
+    # Build monotonic pre-actual values that lead up to the latest observed metric.
+    weights = [rng.random() + 0.2 for _ in range(periods + 1)]
+    total_weight = sum(weights)
+    running = 0.0
+    values: List[int] = []
+    for index in range(periods):
+        running += weights[index]
+        value = int((running / total_weight) * current_value)
+        if values and value < values[-1]:
+            value = values[-1]
+        if value >= current_value:
+            value = max(0, current_value - 1)
+        values.append(value)
+    return values
+
+
+def estimate_playlist_history(playlist_id: str, months_back: int = 12) -> Dict[str, int]:
+    """Backfill estimated monthly history for a playlist, labeled as estimated."""
+    history_df = load_snapshot_history()
+    if history_df.empty:
+        return {"estimated_rows": 0, "videos": 0, "months": months_back}
+
+    history_df["snapshot_time"] = pd.to_datetime(history_df["snapshot_time"], errors="coerce", utc=True)
+    history_df = history_df.dropna(subset=["snapshot_time"]).copy()
+
+    playlist_df = history_df[history_df["playlist_id"] == playlist_id].copy()
+    actual_df = playlist_df[playlist_df["data_source"] == "actual"].copy()
+    if actual_df.empty:
+        return {"estimated_rows": 0, "videos": 0, "months": months_back}
+
+    latest_snapshot_time = actual_df["snapshot_time"].max()
+    latest_rows = actual_df[actual_df["snapshot_time"] == latest_snapshot_time].copy()
+    latest_rows = latest_rows.drop_duplicates(subset=["video_id"], keep="first")
+
+    estimate_dates = [latest_snapshot_time - pd.DateOffset(months=offset) for offset in range(months_back, 0, -1)]
+    estimated_records = []
+
+    for _, row in latest_rows.iterrows():
+        video_id = str(row.get("video_id", ""))
+        seed_base = abs(hash(f"{playlist_id}:{video_id}")) % (2**32)
+        view_rng = random.Random(seed_base)
+        like_rng = random.Random(seed_base + 101)
+        comment_rng = random.Random(seed_base + 202)
+
+        view_series = _estimated_series(int(row.get("view_count", 0) or 0), months_back, view_rng)
+        like_series = _estimated_series(int(row.get("like_count", 0) or 0), months_back, like_rng)
+        comment_series = _estimated_series(int(row.get("comment_count", 0) or 0), months_back, comment_rng)
+
+        for index, estimate_time in enumerate(estimate_dates):
+            estimated_records.append(
+                {
+                    "snapshot_time": estimate_time.isoformat(),
+                    "data_source": "estimated",
+                    "playlist_id": row.get("playlist_id", playlist_id),
+                    "playlist_title": row.get("playlist_title", ""),
+                    "video_id": row.get("video_id", ""),
+                    "title": row.get("title", ""),
+                    "channel_title": row.get("channel_title", ""),
+                    "published_at": row.get("published_at", ""),
+                    "view_count": view_series[index],
+                    "like_count": like_series[index],
+                    "comment_count": comment_series[index],
+                }
+            )
+
+    non_estimated_or_other = history_df[
+        (history_df["playlist_id"] != playlist_id) | (history_df["data_source"] != "estimated")
+    ].copy()
+    refreshed_df = pd.concat([non_estimated_or_other, pd.DataFrame(estimated_records)], ignore_index=True)
+    refreshed_df = refreshed_df.sort_values("snapshot_time", ascending=True)
+    _write_snapshot_history(refreshed_df)
+
+    return {
+        "estimated_rows": len(estimated_records),
+        "videos": len(latest_rows),
+        "months": months_back,
+    }
