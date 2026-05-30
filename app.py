@@ -4,6 +4,7 @@ import inspect
 import altair as alt
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from youtube_tracker.storage import (
     append_snapshot,
@@ -109,6 +110,7 @@ if "api_key_value" not in st.session_state:
 api_col, verify_col = st.columns([8.5, 1.5])
 api_key = api_col.text_input(
     "YouTube Data API key",
+    type="password",
     key="api_key_value",
     help=(
         "For local testing, enter the key here or set YOUTUBE_API_KEY in .streamlit/secrets.toml. "
@@ -117,8 +119,8 @@ api_key = api_col.text_input(
         f"[Google setup guide]({GOOGLE_API_HELP_URL})."
     ),
 )
-verify_col.markdown("<div style='height: 1.85rem;'></div>", unsafe_allow_html=True)
-if verify_col.button("Verify API Key"):
+verify_col.markdown("Verify API Key")
+if verify_col.button("Verify API Key", use_container_width=True):
     if not api_key.strip():
         st.session_state["api_verified"] = False
         st.session_state["api_verify_error"] = "Enter an API key first."
@@ -163,7 +165,7 @@ selected_channel_history = channel_history_col.selectbox(
     "History",
     options=channel_history_options,
     index=channel_history_default,
-    label_visibility="collapsed",
+    label_visibility="visible",
     help="Choose a previously used channel.",
 )
 if selected_channel_history != "(history)" and selected_channel_history != st.session_state["channel_input_value"]:
@@ -362,7 +364,28 @@ if fetch_clicked:
             options=preview_candidates["video_label"].tolist(),
         )
         selected_video_row = preview_candidates[preview_candidates["video_label"] == selected_video_label].iloc[0]
-        st.video(selected_video_row["video_url"])
+        video_id = str(selected_video_row.get("video_id", "")).strip()
+        if not video_id and "video_url" in selected_video_row:
+            video_id = str(selected_video_row["video_url"]).split("v=")[-1].split("&")[0].strip()
+        if video_id:
+            components.html(
+                f"""
+<div style=\"display:flex;justify-content:center;\">
+  <div style=\"width:75%;min-width:280px;max-width:960px;aspect-ratio:16/9;\">
+    <iframe
+      src=\"https://www.youtube.com/embed/{video_id}\"
+      style=\"width:100%;height:100%;border:0;border-radius:12px;\"
+      allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\"
+      allowfullscreen
+      title=\"YouTube video preview\"
+    ></iframe>
+  </div>
+</div>
+""",
+                height=460,
+            )
+        else:
+            st.video(selected_video_row["video_url"])
 
         st.download_button(
             label="Download Combined CSV",
@@ -419,12 +442,24 @@ History combines actual snapshots you recorded with estimated rows when you choo
     )
 
     playlist_filter_options = sorted(history_df["playlist_id"].dropna().unique().tolist())
+    playlist_name_lookup = {}
+    if "playlist_title" in history_df.columns:
+        titled = history_df[["playlist_id", "playlist_title"]].copy()
+        titled["playlist_title"] = titled["playlist_title"].fillna("").astype(str)
+        titled = titled[titled["playlist_title"].str.strip() != ""]
+        for _, row in titled.drop_duplicates(subset=["playlist_id"], keep="last").iterrows():
+            playlist_name_lookup[str(row["playlist_id"])] = str(row["playlist_title"]).strip()
+
+    def _history_label(playlist_id: str) -> str:
+        return playlist_name_lookup.get(str(playlist_id), str(playlist_id))
+
     selected_history_playlist = st.selectbox(
         "Playlist for history",
         options=playlist_filter_options,
         index=playlist_filter_options.index(user_config.get("last_history_playlist_id", playlist_filter_options[0]))
         if user_config.get("last_history_playlist_id", "") in playlist_filter_options
         else 0,
+        format_func=_history_label,
     )
     _save_user_preferences_safe(last_history_playlist_id=selected_history_playlist)
 

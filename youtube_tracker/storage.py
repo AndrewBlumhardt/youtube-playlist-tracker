@@ -194,6 +194,13 @@ def _estimated_series(current_value: int, periods: int, rng: random.Random) -> L
     return values
 
 
+def _safe_int(value: object) -> int:
+    parsed = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(parsed):
+        return 0
+    return int(parsed)
+
+
 def estimate_playlist_history(playlist_id: str, months_back: int = 12) -> Dict[str, int]:
     """Backfill estimated monthly history for a playlist, labeled as estimated."""
     history_df = load_snapshot_history()
@@ -222,9 +229,9 @@ def estimate_playlist_history(playlist_id: str, months_back: int = 12) -> Dict[s
         like_rng = random.Random(seed_base + 101)
         comment_rng = random.Random(seed_base + 202)
 
-        view_series = _estimated_series(int(row.get("view_count", 0) or 0), months_back, view_rng)
-        like_series = _estimated_series(int(row.get("like_count", 0) or 0), months_back, like_rng)
-        comment_series = _estimated_series(int(row.get("comment_count", 0) or 0), months_back, comment_rng)
+        view_series = _estimated_series(_safe_int(row.get("view_count", 0)), months_back, view_rng)
+        like_series = _estimated_series(_safe_int(row.get("like_count", 0)), months_back, like_rng)
+        comment_series = _estimated_series(_safe_int(row.get("comment_count", 0)), months_back, comment_rng)
 
         for index, estimate_time in enumerate(estimate_dates):
             estimated_records.append(
