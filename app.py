@@ -106,7 +106,7 @@ st.subheader("API Configuration")
 if "api_key_value" not in st.session_state:
     st.session_state["api_key_value"] = _get_default_api_key()
 
-api_col, verify_col = st.columns([8, 2])
+api_col, verify_col = st.columns([8.5, 1.5])
 api_key = api_col.text_input(
     "YouTube Data API key",
     key="api_key_value",
@@ -117,6 +117,7 @@ api_key = api_col.text_input(
         f"[Google setup guide]({GOOGLE_API_HELP_URL})."
     ),
 )
+verify_col.markdown("<div style='height: 1.85rem;'></div>", unsafe_allow_html=True)
 if verify_col.button("Verify API Key"):
     if not api_key.strip():
         st.session_state["api_verified"] = False
@@ -145,7 +146,7 @@ saved_channels = user_config.get("saved_channels", [])
 if "channel_input_value" not in st.session_state:
     st.session_state["channel_input_value"] = user_config.get("last_channel_input", "")
 
-channel_input_col, channel_history_col = st.columns([8, 2])
+channel_input_col, channel_history_col = st.columns([9, 1])
 channel_input_col.text_input(
     "Channel URL, handle (@name), or channel ID",
     placeholder="https://www.youtube.com/@channelname or UC...",
