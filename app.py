@@ -1,4 +1,5 @@
 import os
+import inspect
 
 import altair as alt
 import pandas as pd
@@ -25,6 +26,13 @@ def verify_api_key(api_key: str):
     if hasattr(yt_api, "verify_api_key"):
         return yt_api.verify_api_key(api_key)
     return (True, "API key format accepted. Upgrade youtube_api.py for full key verification.")
+
+
+def _save_user_preferences_safe(**kwargs):
+    """Save known preference fields even if local storage helper is on an older signature."""
+    supported_keys = set(inspect.signature(save_user_preferences).parameters.keys())
+    filtered = {key: value for key, value in kwargs.items() if key in supported_keys}
+    save_user_preferences(**filtered)
 
 
 st.set_page_config(page_title="YouTube Playlist Tracker", page_icon="YT", layout="wide")
@@ -101,7 +109,6 @@ if "api_key_value" not in st.session_state:
 api_col, verify_col, status_col = st.columns([4, 1, 1])
 api_key = api_col.text_input(
     "YouTube Data API key",
-    type="password",
     key="api_key_value",
     help=(
         "For local testing, enter the key here or set YOUTUBE_API_KEY in .streamlit/secrets.toml. "
@@ -134,23 +141,34 @@ if not st.session_state["show_discovery_history"]:
     st.session_state["show_discovery_history"] = bool(user_config.get("show_discovery_history", False))
 
 saved_channels = user_config.get("saved_channels", [])
-channel_pick_options = ["(enter new channel)"] + saved_channels
-last_channel_used = user_config.get("last_channel_input", "")
-default_channel_index = channel_pick_options.index(last_channel_used) if last_channel_used in channel_pick_options else 0
-selected_saved_channel = st.selectbox("Saved channels", options=channel_pick_options, index=default_channel_index)
+if "channel_input_value" not in st.session_state:
+    st.session_state["channel_input_value"] = user_config.get("last_channel_input", "")
 
-channel_input = st.text_input(
+channel_input_col, channel_history_col = st.columns([5, 1])
+channel_input_col.text_input(
     "Channel URL, handle (@name), or channel ID",
     placeholder="https://www.youtube.com/@channelname or UC...",
-    value=user_config.get("last_channel_input", ""),
+    key="channel_input_value",
 )
 
-effective_channel = channel_input.strip()
-if selected_saved_channel != "(enter new channel)":
-    effective_channel = selected_saved_channel
+channel_history_options = ["(history)"] + saved_channels
+channel_history_default = (
+    channel_history_options.index(st.session_state["channel_input_value"])
+    if st.session_state["channel_input_value"] in channel_history_options
+    else 0
+)
+selected_channel_history = channel_history_col.selectbox(
+    "History",
+    options=channel_history_options,
+    index=channel_history_default,
+    label_visibility="collapsed",
+    help="Choose a previously used channel.",
+)
+if selected_channel_history != "(history)" and selected_channel_history != st.session_state["channel_input_value"]:
+    st.session_state["channel_input_value"] = selected_channel_history
+    st.rerun()
 
-if effective_channel and effective_channel not in saved_channels:
-    save_user_preferences(saved_channels=saved_channels + [effective_channel])
+effective_channel = st.session_state["channel_input_value"].strip()
 
 should_discover = bool(effective_channel and api_key.strip())
 if should_discover:
@@ -161,10 +179,10 @@ if should_discover:
                 st.session_state["discovered_playlists"] = playlists
                 st.session_state["selected_playlists"] = [item["playlist_id"] for item in playlists]
                 st.session_state["last_discovery_channel"] = effective_channel
-                save_user_preferences(
+                _save_user_preferences_safe(
                     last_channel_input=effective_channel,
                     last_discovered_playlists=playlists,
-                    saved_channels=saved_channels + [effective_channel],
+                    saved_channels=(saved_channels + [effective_channel]),
                 )
             except YouTubeApiError as exc:
                 st.error(f"Channel discovery error: {exc}")
@@ -210,7 +228,7 @@ st.session_state["show_discovery_history"] = show_history_col1.checkbox(
     "Show discovery history",
     value=bool(st.session_state["show_discovery_history"]),
 )
-save_user_preferences(show_discovery_history=st.session_state["show_discovery_history"])
+_save_user_preferences_safe(show_discovery_history=st.session_state["show_discovery_history"])
 if st.session_state["show_discovery_history"]:
     with st.expander("Previously discovered playlists", expanded=True):
         if not cached_discovered_df.empty:
@@ -221,7 +239,7 @@ if st.session_state["show_discovery_history"]:
 
 if action_col3.button("Save Playlist Selection", use_container_width=True):
     save_user_config(selected_discovered_playlists)
-    save_user_preferences(saved_playlist_ids=selected_discovered_playlists, last_channel_input=effective_channel)
+    _save_user_preferences_safe(saved_playlist_ids=selected_discovered_playlists, last_channel_input=effective_channel)
     st.success("Saved playlist selection to local config.")
 
 playlist_input = st.text_input(
@@ -252,7 +270,7 @@ if fetch_clicked:
         st.error("Manual playlist input is not a valid playlist URL or playlist ID.")
         st.stop()
 
-    save_user_preferences(
+    _save_user_preferences_safe(
         saved_playlist_ids=selected_discovered_playlists,
         last_channel_input=effective_channel,
         last_playlist_input=playlist_input,
@@ -406,7 +424,7 @@ History combines actual snapshots you recorded with estimated rows when you choo
         if user_config.get("last_history_playlist_id", "") in playlist_filter_options
         else 0,
     )
-    save_user_preferences(last_history_playlist_id=selected_history_playlist)
+    _save_user_preferences_safe(last_history_playlist_id=selected_history_playlist)
 
     estimate_col1, estimate_col2 = st.columns([2, 1])
     months_back = estimate_col1.slider("Estimate months back", min_value=3, max_value=24, value=12, step=1)
