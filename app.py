@@ -90,7 +90,7 @@ if selected_source != "(manual input)":
 else:
     active_playlist_id = extract_playlist_id(playlist_input)
 
-persist_snapshot = st.checkbox("Save snapshot to local history", value=True)
+persist_snapshot = st.checkbox("Save snapshot to local history", value=False)
 
 fetch_clicked = st.button("Fetch Playlist Statistics", type="primary")
 
