@@ -146,24 +146,26 @@ if fetch_clicked:
             playlist_title = playlist_title_lookup.get(playlist_id, "Manual Playlist")
 
             st.success(f"Loaded {len(df)} videos from {playlist_title} ({playlist_id}).")
-            st.dataframe(df, use_container_width=True)
+            with st.expander(f"Results: {playlist_title}", expanded=False):
+                st.caption(f"Playlist ID: {playlist_id}")
+                st.dataframe(df, width="stretch")
 
-            if persist_snapshot and not df.empty:
-                snapshot_time = append_snapshot(
-                    playlist_id=playlist_id,
-                    playlist_title=playlist_title,
-                    df=df,
+                if persist_snapshot and not df.empty:
+                    snapshot_time = append_snapshot(
+                        playlist_id=playlist_id,
+                        playlist_title=playlist_title,
+                        df=df,
+                    )
+                    st.info(f"Snapshot saved for {playlist_title} at {snapshot_time}.")
+
+                download_name = f"playlist_{playlist_id}_stats.csv"
+                st.download_button(
+                    label=f"Download CSV: {playlist_title}",
+                    data=df.to_csv(index=False).encode("utf-8"),
+                    file_name=download_name,
+                    mime="text/csv",
+                    key=f"download_{playlist_id}",
                 )
-                st.info(f"Snapshot saved for {playlist_title} at {snapshot_time}.")
-
-            download_name = f"playlist_{playlist_id}_stats.csv"
-            st.download_button(
-                label=f"Download CSV: {playlist_title}",
-                data=df.to_csv(index=False).encode("utf-8"),
-                file_name=download_name,
-                mime="text/csv",
-                key=f"download_{playlist_id}",
-            )
 
             if not df.empty:
                 df = df.copy()
@@ -174,7 +176,7 @@ if fetch_clicked:
     if all_frames:
         combined_df = all_frames[0] if len(all_frames) == 1 else pd.concat(all_frames, ignore_index=True)
         st.subheader("Combined Results")
-        st.dataframe(combined_df, use_container_width=True)
+        st.dataframe(combined_df, width="stretch")
         st.download_button(
             label="Download Combined CSV",
             data=combined_df.to_csv(index=False).encode("utf-8"),
@@ -204,4 +206,4 @@ else:
         )
         .sort_values("snapshot_time", ascending=False)
     )
-    st.dataframe(grouped, use_container_width=True)
+    st.dataframe(grouped, width="stretch")
