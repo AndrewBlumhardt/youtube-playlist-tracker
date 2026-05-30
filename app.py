@@ -1,5 +1,6 @@
 import os
 
+import pandas as pd
 import streamlit as st
 
 from youtube_tracker.storage import (
@@ -20,6 +21,8 @@ st.set_page_config(page_title="YouTube Playlist Tracker", page_icon="YT", layout
 
 if "discovered_playlists" not in st.session_state:
     st.session_state["discovered_playlists"] = []
+if "selected_playlists" not in st.session_state:
+    st.session_state["selected_playlists"] = []
 
 
 def _get_default_api_key() -> str:
@@ -33,7 +36,8 @@ def _get_default_api_key() -> str:
         return ""
 
 st.title("YouTube Playlist Tracker")
-st.caption("Phase 1-3: Single playlist retrieval, playlist discovery, and local snapshot history.")
+st.caption("Discover playlists and retrieve video statistics.")
+st.markdown("[GitHub Repository](https://github.com/AndrewBlumhardt/youtube-playlist-tracker)")
 
 st.subheader("API Configuration")
 api_key = st.text_input(
@@ -43,7 +47,7 @@ api_key = st.text_input(
     help="For local testing, enter the key here or set YOUTUBE_API_KEY in .streamlit/secrets.toml.",
 )
 
-st.subheader("Playlist Discovery (Phase 2)")
+st.subheader("Playlist Discovery")
 channel_input = st.text_input(
     "Channel URL, handle (@name), or channel ID",
     placeholder="https://www.youtube.com/@channelname or UC...",
@@ -63,26 +67,39 @@ if discover_clicked:
             st.stop()
 
     st.session_state["discovered_playlists"] = playlists
+    st.session_state["selected_playlists"] = [item["playlist_id"] for item in playlists]
     st.success(f"Discovered {len(playlists)} playlists.")
 
 user_config = load_user_config()
 discovered = st.session_state["discovered_playlists"]
 discovered_ids = [item["playlist_id"] for item in discovered]
 saved_defaults = [item for item in user_config.get("saved_playlist_ids", []) if item in discovered_ids]
+if discovered_ids and not st.session_state["selected_playlists"]:
+    st.session_state["selected_playlists"] = saved_defaults or discovered_ids
+
+playlist_title_lookup = {item["playlist_id"]: item["title"] for item in discovered}
 
 selected_discovered_playlists = st.multiselect(
-    "Save one or more discovered playlists",
+    "Discovered playlists to include for stats retrieval",
     options=discovered_ids,
-    default=saved_defaults,
+    key="selected_playlists",
     format_func=lambda playlist_id: next(
         (
-            f"{item['title']} ({item['video_count']} videos) [{item['playlist_id']}]"
+            f"{item['title']} ({item['video_count']} videos)"
             for item in discovered
             if item["playlist_id"] == playlist_id
         ),
         playlist_id,
     ),
 )
+
+col1, col2 = st.columns(2)
+if col1.button("Select All Discovered"):
+    st.session_state["selected_playlists"] = discovered_ids
+    st.rerun()
+if col2.button("Clear Selection"):
+    st.session_state["selected_playlists"] = []
+    st.rerun()
 
 save_config_clicked = st.button("Save Playlist Selection")
 if save_config_clicked:
@@ -91,17 +108,10 @@ if save_config_clicked:
 
 st.subheader("Playlist Stats Retrieval")
 playlist_input = st.text_input(
-    "Playlist URL or Playlist ID",
+    "Optional manual playlist URL or playlist ID",
     placeholder="https://www.youtube.com/playlist?list=PL... or PL...",
 )
-
-playlist_choices = ["(manual input)"] + selected_discovered_playlists
-selected_source = st.selectbox("Choose source playlist", options=playlist_choices)
-
-if selected_source != "(manual input)":
-    active_playlist_id = selected_source
-else:
-    active_playlist_id = extract_playlist_id(playlist_input)
+manual_playlist_id = extract_playlist_id(playlist_input) if playlist_input.strip() else ""
 
 persist_snapshot = st.checkbox("Save snapshot to local history", value=False)
 
@@ -112,40 +122,67 @@ if fetch_clicked:
         st.error("Please provide a YouTube Data API key.")
         st.stop()
 
-    if not active_playlist_id:
-        st.error("Please provide a valid YouTube playlist URL or playlist ID.")
+    playlist_ids_to_fetch = list(selected_discovered_playlists)
+    if manual_playlist_id and manual_playlist_id not in playlist_ids_to_fetch:
+        playlist_ids_to_fetch.append(manual_playlist_id)
+
+    if not playlist_ids_to_fetch:
+        st.error("Select one or more discovered playlists, or provide a valid manual playlist URL/ID.")
         st.stop()
 
+    if playlist_input.strip() and not manual_playlist_id:
+        st.error("Manual playlist input is not a valid playlist URL or playlist ID.")
+        st.stop()
+
+    all_frames = []
     with st.spinner("Loading playlist videos and statistics..."):
-        try:
-            df = fetch_playlist_videos_with_stats(api_key=api_key.strip(), playlist_id=active_playlist_id)
-        except YouTubeApiError as exc:
-            st.error(f"YouTube API error: {exc}")
-            st.stop()
+        for playlist_id in playlist_ids_to_fetch:
+            try:
+                df = fetch_playlist_videos_with_stats(api_key=api_key.strip(), playlist_id=playlist_id)
+            except YouTubeApiError as exc:
+                st.error(f"YouTube API error for playlist {playlist_id}: {exc}")
+                continue
 
-    st.success(f"Loaded {len(df)} videos from playlist {active_playlist_id}.")
-    st.dataframe(df, use_container_width=True)
+            playlist_title = playlist_title_lookup.get(playlist_id, "Manual Playlist")
 
-    if persist_snapshot and not df.empty:
-        playlist_title_lookup = {
-            item["playlist_id"]: item["title"] for item in st.session_state["discovered_playlists"]
-        }
-        snapshot_time = append_snapshot(
-            playlist_id=active_playlist_id,
-            playlist_title=playlist_title_lookup.get(active_playlist_id, ""),
-            df=df,
+            st.success(f"Loaded {len(df)} videos from {playlist_title} ({playlist_id}).")
+            st.dataframe(df, use_container_width=True)
+
+            if persist_snapshot and not df.empty:
+                snapshot_time = append_snapshot(
+                    playlist_id=playlist_id,
+                    playlist_title=playlist_title,
+                    df=df,
+                )
+                st.info(f"Snapshot saved for {playlist_title} at {snapshot_time}.")
+
+            download_name = f"playlist_{playlist_id}_stats.csv"
+            st.download_button(
+                label=f"Download CSV: {playlist_title}",
+                data=df.to_csv(index=False).encode("utf-8"),
+                file_name=download_name,
+                mime="text/csv",
+                key=f"download_{playlist_id}",
+            )
+
+            if not df.empty:
+                df = df.copy()
+                df.insert(0, "playlist_id", playlist_id)
+                df.insert(1, "playlist_title", playlist_title)
+                all_frames.append(df)
+
+    if all_frames:
+        combined_df = all_frames[0] if len(all_frames) == 1 else pd.concat(all_frames, ignore_index=True)
+        st.subheader("Combined Results")
+        st.dataframe(combined_df, use_container_width=True)
+        st.download_button(
+            label="Download Combined CSV",
+            data=combined_df.to_csv(index=False).encode("utf-8"),
+            file_name="playlist_combined_stats.csv",
+            mime="text/csv",
         )
-        st.info(f"Snapshot saved at {snapshot_time}.")
 
-    csv_bytes = df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="Download CSV",
-        data=csv_bytes,
-        file_name=f"playlist_{active_playlist_id}_stats.csv",
-        mime="text/csv",
-    )
-
-st.subheader("Historical Snapshot Summary (Phase 3)")
+st.subheader("Historical Snapshot Summary")
 history_df = load_snapshot_history()
 if history_df.empty:
     st.caption("No local snapshots saved yet.")
@@ -168,14 +205,3 @@ else:
         .sort_values("snapshot_time", ascending=False)
     )
     st.dataframe(grouped, use_container_width=True)
-
-st.divider()
-st.markdown(
-    """
-### Next Phases
-- Add richer time-series visualizations and charts
-- Support multi-playlist aggregate dashboards
-- Add optional OAuth workflow for account-specific features
-- Add pluggable persistent backend (SQLite or Postgres)
-"""
-)
