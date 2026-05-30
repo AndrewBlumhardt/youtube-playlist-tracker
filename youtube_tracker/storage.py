@@ -254,6 +254,7 @@ def estimate_playlist_history(playlist_id: str, months_back: int = 12) -> Dict[s
         (history_df["playlist_id"] != playlist_id) | (history_df["data_source"] != "estimated")
     ].copy()
     refreshed_df = pd.concat([non_estimated_or_other, pd.DataFrame(estimated_records)], ignore_index=True)
+    refreshed_df["snapshot_time"] = pd.to_datetime(refreshed_df["snapshot_time"], errors="coerce", utc=True)
     refreshed_df = refreshed_df.sort_values("snapshot_time", ascending=True)
     _write_snapshot_history(refreshed_df)
 

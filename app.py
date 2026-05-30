@@ -119,7 +119,7 @@ api_key = api_col.text_input(
         f"[Google setup guide]({GOOGLE_API_HELP_URL})."
     ),
 )
-verify_col.markdown("Verify API Key")
+verify_col.markdown("<div style='padding-top:1.72rem'></div>", unsafe_allow_html=True)
 if verify_col.button("Verify API Key", use_container_width=True):
     if not api_key.strip():
         st.session_state["api_verified"] = False
