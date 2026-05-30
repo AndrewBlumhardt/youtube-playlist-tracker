@@ -135,7 +135,9 @@ if not st.session_state["show_discovery_history"]:
 
 saved_channels = user_config.get("saved_channels", [])
 channel_pick_options = ["(enter new channel)"] + saved_channels
-selected_saved_channel = st.selectbox("Saved channels", options=channel_pick_options)
+last_channel_used = user_config.get("last_channel_input", "")
+default_channel_index = channel_pick_options.index(last_channel_used) if last_channel_used in channel_pick_options else 0
+selected_saved_channel = st.selectbox("Saved channels", options=channel_pick_options, index=default_channel_index)
 
 channel_input = st.text_input(
     "Channel URL, handle (@name), or channel ID",
