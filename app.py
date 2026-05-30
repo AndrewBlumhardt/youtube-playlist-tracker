@@ -40,6 +40,9 @@ def _get_default_api_key() -> str:
 st.markdown(
     """
 <style>
+section.main > div.block-container {
+    padding-top: 1rem;
+}
 div[data-testid="stAppViewContainer"] {
     background: radial-gradient(circle at 15% 20%, #eef6ff 0%, #f9fbff 40%, #ffffff 100%);
 }
