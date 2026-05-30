@@ -23,6 +23,8 @@ if "discovered_playlists" not in st.session_state:
     st.session_state["discovered_playlists"] = []
 if "selected_playlists" not in st.session_state:
     st.session_state["selected_playlists"] = []
+if "latest_combined_df" not in st.session_state:
+    st.session_state["latest_combined_df"] = pd.DataFrame()
 
 
 def _get_default_api_key() -> str:
@@ -35,9 +37,47 @@ def _get_default_api_key() -> str:
     except Exception:
         return ""
 
-st.title("YouTube Playlist Tracker")
-st.caption("Discover playlists and retrieve video statistics.")
-st.markdown("[GitHub Repository](https://github.com/AndrewBlumhardt/youtube-playlist-tracker)")
+st.markdown(
+    """
+<style>
+div[data-testid="stAppViewContainer"] {
+    background: radial-gradient(circle at 15% 20%, #eef6ff 0%, #f9fbff 40%, #ffffff 100%);
+}
+.yt-card {
+    padding: 0.9rem 1rem;
+    border: 1px solid #d8e8ff;
+    border-radius: 12px;
+    background: linear-gradient(180deg, #ffffff 0%, #f7fbff 100%);
+}
+.yt-note {
+    color: #2a4e75;
+    font-size: 0.92rem;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+title_col, link_col = st.columns([6, 2])
+title_col.title("YouTube Playlist Tracker")
+title_col.caption("Discover playlists, retrieve stats, and preview videos directly in-app.")
+link_col.markdown(
+    """
+<div style="padding-top: 2.2rem; text-align: right;">
+<a href="https://github.com/AndrewBlumhardt/youtube-playlist-tracker" target="_blank">GitHub Repository</a>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+<div class="yt-card yt-note">
+Tip: Discover playlists first, then use multi-select chips to choose what to run. You can still add one manual playlist URL/ID for ad-hoc testing.
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
 st.subheader("API Configuration")
 api_key = st.text_input(
@@ -93,6 +133,10 @@ selected_discovered_playlists = st.multiselect(
     ),
 )
 
+metric_col1, metric_col2 = st.columns(2)
+metric_col1.metric("Discovered Playlists", len(discovered_ids))
+metric_col2.metric("Selected For Retrieval", len(selected_discovered_playlists))
+
 col1, col2 = st.columns(2)
 if col1.button("Select All Discovered"):
     st.session_state["selected_playlists"] = discovered_ids
@@ -145,10 +189,21 @@ if fetch_clicked:
 
             playlist_title = playlist_title_lookup.get(playlist_id, "Manual Playlist")
 
+            df_display = df.copy()
+            if "video_id" in df_display.columns:
+                df_display["video_url"] = "https://www.youtube.com/watch?v=" + df_display["video_id"].astype(str)
+
             st.success(f"Loaded {len(df)} videos from {playlist_title} ({playlist_id}).")
             with st.expander(f"Results: {playlist_title}", expanded=False):
                 st.caption(f"Playlist ID: {playlist_id}")
-                st.dataframe(df, width="stretch")
+                st.dataframe(
+                    df_display,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "video_url": st.column_config.LinkColumn("Video Link", display_text="Open"),
+                    },
+                )
 
                 if persist_snapshot and not df.empty:
                     snapshot_time = append_snapshot(
@@ -171,18 +226,54 @@ if fetch_clicked:
                 df = df.copy()
                 df.insert(0, "playlist_id", playlist_id)
                 df.insert(1, "playlist_title", playlist_title)
+                if "video_id" in df.columns:
+                    df.insert(2, "video_url", "https://www.youtube.com/watch?v=" + df["video_id"].astype(str))
                 all_frames.append(df)
 
     if all_frames:
         combined_df = all_frames[0] if len(all_frames) == 1 else pd.concat(all_frames, ignore_index=True)
+        st.session_state["latest_combined_df"] = combined_df
         st.subheader("Combined Results")
-        st.dataframe(combined_df, width="stretch")
+        st.dataframe(
+            combined_df,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "video_url": st.column_config.LinkColumn("Video Link", display_text="Open"),
+            },
+        )
+
+        st.markdown("### In-App Video Preview")
+        playlist_options = sorted(combined_df["playlist_title"].dropna().unique().tolist())
+        selected_preview_playlist = st.selectbox("Choose playlist", options=playlist_options)
+        preview_candidates = combined_df[combined_df["playlist_title"] == selected_preview_playlist].copy()
+        preview_candidates["video_label"] = (
+            preview_candidates["title"].astype(str)
+            + " | views: "
+            + preview_candidates["view_count"].astype(str)
+        )
+
+        selected_video_label = st.selectbox(
+            "Choose video to preview",
+            options=preview_candidates["video_label"].tolist(),
+        )
+        selected_video_row = preview_candidates[preview_candidates["video_label"] == selected_video_label].iloc[0]
+        st.video(selected_video_row["video_url"])
+
         st.download_button(
             label="Download Combined CSV",
             data=combined_df.to_csv(index=False).encode("utf-8"),
             file_name="playlist_combined_stats.csv",
             mime="text/csv",
         )
+
+latest_df = st.session_state["latest_combined_df"]
+if not latest_df.empty:
+    st.subheader("Latest Retrieval Snapshot")
+    snap_col1, snap_col2, snap_col3 = st.columns(3)
+    snap_col1.metric("Videos", int(len(latest_df)))
+    snap_col2.metric("Total Views", int(latest_df["view_count"].sum()))
+    snap_col3.metric("Total Likes", int(latest_df["like_count"].sum()))
 
 st.subheader("Historical Snapshot Summary")
 history_df = load_snapshot_history()
