@@ -123,6 +123,9 @@ if st.session_state["api_verified"]:
 
 st.subheader("Playlist Discovery")
 user_config = load_user_config()
+if not st.session_state["discovered_playlists"] and user_config.get("last_discovered_playlists"):
+    st.session_state["discovered_playlists"] = user_config.get("last_discovered_playlists", [])
+
 channel_input = st.text_input(
     "Channel URL, handle (@name), or channel ID",
     placeholder="https://www.youtube.com/@channelname or UC...",
@@ -189,12 +192,12 @@ st.session_state["show_discovery_history"] = show_history_col1.checkbox(
     value=bool(st.session_state["show_discovery_history"]),
 )
 if st.session_state["show_discovery_history"]:
-    if not cached_discovered_df.empty:
-        st.caption("Previously discovered playlists")
-        display_cols = [col for col in ["title", "playlist_id", "video_count"] if col in cached_discovered_df.columns]
-        st.dataframe(cached_discovered_df[display_cols], width="stretch", hide_index=True)
-    else:
-        st.caption("No saved discovery history yet.")
+    with st.expander("Previously discovered playlists", expanded=True):
+        if not cached_discovered_df.empty:
+            display_cols = [col for col in ["title", "playlist_id", "video_count"] if col in cached_discovered_df.columns]
+            st.dataframe(cached_discovered_df[display_cols], width="stretch", hide_index=True)
+        else:
+            st.caption("No saved discovery history yet.")
 
 if action_col3.button("Save Playlist Selection", use_container_width=True):
     save_user_config(selected_discovered_playlists)
