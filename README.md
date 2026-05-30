@@ -116,6 +116,18 @@ streamlit run app.py
 	- CSV download works.
 	- Historical Snapshot Summary populates after one saved snapshot.
 
+## Notebook Key Safety
+
+Use this workflow to avoid committing secrets:
+
+1. Use `youtube_playlist_tracker.ipynb` as the tracked template notebook.
+2. Create your personal working copy named `youtube_playlist_tracker.local.ipynb`.
+3. Put sensitive experimentation in the `.local.ipynb` file only.
+4. Set your key with environment variable `YOUTUBE_API_KEY` or use the notebook prompt.
+5. Before any commit, run `git status` and confirm no secret-bearing notebook is staged.
+
+Files matching `*.local.ipynb` are ignored by Git.
+
 ## Notes on Discovery
 
 Channel discovery in this version is based on public channel data (channel URL/handle/ID/query). Retrieving playlists specifically tied to the currently signed-in Google account requires OAuth-based flows and additional scopes, which is a later enhancement.
