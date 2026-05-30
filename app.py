@@ -125,6 +125,8 @@ st.subheader("Playlist Discovery")
 user_config = load_user_config()
 if not st.session_state["discovered_playlists"] and user_config.get("last_discovered_playlists"):
     st.session_state["discovered_playlists"] = user_config.get("last_discovered_playlists", [])
+if not st.session_state["show_discovery_history"]:
+    st.session_state["show_discovery_history"] = bool(user_config.get("show_discovery_history", False))
 
 channel_input = st.text_input(
     "Channel URL, handle (@name), or channel ID",
@@ -191,6 +193,7 @@ st.session_state["show_discovery_history"] = show_history_col1.checkbox(
     "Show discovery history",
     value=bool(st.session_state["show_discovery_history"]),
 )
+save_user_preferences(show_discovery_history=st.session_state["show_discovery_history"])
 if st.session_state["show_discovery_history"]:
     with st.expander("Previously discovered playlists", expanded=True):
         if not cached_discovered_df.empty:
@@ -368,6 +371,15 @@ history_df = load_snapshot_history()
 if history_df.empty:
     st.caption("No local snapshots saved yet.")
 else:
+    st.markdown(
+        """
+<div class="yt-card yt-note">
+History combines actual snapshots you recorded with estimated rows when you choose backfill. Use one playlist at a time, and switch between timeline and histogram views below.
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
     playlist_filter_options = sorted(history_df["playlist_id"].dropna().unique().tolist())
     selected_history_playlist = st.selectbox(
         "Playlist for history",
@@ -401,12 +413,7 @@ else:
         )
         .sort_values("snapshot_time", ascending=False)
     )
-    st.dataframe(grouped, width="stretch")
-
-    st.subheader("History Timeline / Histogram")
-    if filtered_history.empty:
-        st.caption("No history data for selected playlist.")
-    else:
+    if not filtered_history.empty:
         per_video_df = filtered_history.copy()
         per_video_df["video_label"] = per_video_df["title"].fillna("").astype(str)
         per_video_df.loc[per_video_df["video_label"].str.strip() == "", "video_label"] = per_video_df["video_id"]
@@ -419,8 +426,11 @@ else:
         )
         plot_df = per_video_df[per_video_df["video_id"].isin(top_videos["video_id"])].copy()
 
-        view_mode = st.radio("Visualization", options=["Timeline (per video)", "Histogram (totals)"])
-        if view_mode == "Timeline (per video)":
+        st.dataframe(grouped, width="stretch", hide_index=True)
+
+        view_tabs = st.tabs(["Timeline", "Histogram"])
+        with view_tabs[0]:
+            st.caption("Each line is one video; solid rows are actual snapshots and dashed rows are estimated history.")
             timeline_chart = (
                 alt.Chart(plot_df)
                 .mark_line(point=True)
@@ -441,7 +451,8 @@ else:
                 .properties(height=420)
             )
             st.altair_chart(timeline_chart, use_container_width=True)
-        else:
+        with view_tabs[1]:
+            st.caption("Histogram view for total views, split by actual and estimated data.")
             hist_df = (
                 plot_df.groupby(["snapshot_time", "data_source"], as_index=False)
                 .agg(total_views=("view_count", "sum"))

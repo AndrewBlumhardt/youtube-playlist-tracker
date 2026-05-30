@@ -28,6 +28,7 @@ def load_user_config() -> Dict:
             "save_snapshot_default": False,
             "last_history_playlist_id": "",
             "last_discovered_playlists": [],
+            "show_discovery_history": False,
         }
 
     try:
@@ -40,6 +41,7 @@ def load_user_config() -> Dict:
             "save_snapshot_default": False,
             "last_history_playlist_id": "",
             "last_discovered_playlists": [],
+            "show_discovery_history": False,
         }
 
     playlist_ids = content.get("saved_playlist_ids", [])
@@ -52,6 +54,7 @@ def load_user_config() -> Dict:
         "save_snapshot_default": bool(content.get("save_snapshot_default", False)),
         "last_history_playlist_id": str(content.get("last_history_playlist_id", "") or ""),
         "last_discovered_playlists": content.get("last_discovered_playlists", []) if isinstance(content.get("last_discovered_playlists", []), list) else [],
+        "show_discovery_history": bool(content.get("show_discovery_history", False)),
     }
 
 
@@ -70,6 +73,7 @@ def save_user_preferences(
     save_snapshot_default: bool | None = None,
     last_history_playlist_id: str | None = None,
     last_discovered_playlists: List[Dict] | None = None,
+    show_discovery_history: bool | None = None,
 ) -> None:
     _ensure_data_dir()
     payload = load_user_config()
@@ -86,6 +90,8 @@ def save_user_preferences(
         payload["last_history_playlist_id"] = last_history_playlist_id.strip()
     if last_discovered_playlists is not None:
         payload["last_discovered_playlists"] = last_discovered_playlists
+    if show_discovery_history is not None:
+        payload["show_discovery_history"] = bool(show_discovery_history)
 
     CONFIG_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
