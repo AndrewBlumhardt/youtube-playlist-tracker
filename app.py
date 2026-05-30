@@ -1,3 +1,5 @@
+import os
+
 import streamlit as st
 
 from youtube_tracker.storage import (
@@ -19,6 +21,17 @@ st.set_page_config(page_title="YouTube Playlist Tracker", page_icon="YT", layout
 if "discovered_playlists" not in st.session_state:
     st.session_state["discovered_playlists"] = []
 
+
+def _get_default_api_key() -> str:
+    env_key = os.getenv("YOUTUBE_API_KEY", "").strip()
+    if env_key:
+        return env_key
+
+    try:
+        return st.secrets.get("YOUTUBE_API_KEY", "")
+    except Exception:
+        return ""
+
 st.title("YouTube Playlist Tracker")
 st.caption("Phase 1-3: Single playlist retrieval, playlist discovery, and local snapshot history.")
 
@@ -26,7 +39,7 @@ st.subheader("API Configuration")
 api_key = st.text_input(
     "YouTube Data API key",
     type="password",
-    value=st.secrets.get("YOUTUBE_API_KEY", ""),
+    value=_get_default_api_key(),
     help="For local testing, enter the key here or set YOUTUBE_API_KEY in .streamlit/secrets.toml.",
 )
 
