@@ -85,6 +85,37 @@ The app accepts any of the following:
 - Public playlist/video metadata and public stats can be fetched with an API key.
 - Account-specific listings tied directly to the signed-in Google user require OAuth and additional scopes (planned later).
 
+## First Run Checklist (Under 5 Minutes)
+
+1. Clone the repository and open it in your terminal.
+2. Create and activate a virtual environment.
+3. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+4. Create a YouTube API key and enable YouTube Data API v3.
+5. Provide the API key:
+	- Add YOUTUBE_API_KEY to .streamlit/secrets.toml, or
+	- Paste the key directly into the app.
+6. Start Streamlit:
+
+```bash
+streamlit run app.py
+```
+
+7. In the app:
+	- Enter a channel URL/handle and click Discover Public Playlists.
+	- Select and save one or more playlists.
+	- Fetch playlist statistics.
+	- Optionally save a snapshot to build history.
+
+8. Confirm success:
+	- You see a video stats table.
+	- CSV download works.
+	- Historical Snapshot Summary populates after one saved snapshot.
+
 ## Notes on Discovery
 
 Channel discovery in this version is based on public channel data (channel URL/handle/ID/query). Retrieving playlists specifically tied to the currently signed-in Google account requires OAuth-based flows and additional scopes, which is a later enhancement.
