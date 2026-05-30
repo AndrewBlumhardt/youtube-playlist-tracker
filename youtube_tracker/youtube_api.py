@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Tuple
 from urllib.parse import parse_qs, urlparse
 
 import pandas as pd
@@ -13,6 +13,33 @@ BASE_URL = "https://www.googleapis.com/youtube/v3"
 
 class YouTubeApiError(RuntimeError):
     """Raised when YouTube Data API calls fail."""
+
+
+def extract_channel_reference(value: str) -> Tuple[str, str]:
+    """Parse channel input into ('channel_id'|'handle'|'query', value)."""
+    value = (value or "").strip()
+    if not value:
+        return ("", "")
+
+    channel_match = re.match(r"^UC[A-Za-z0-9_-]{20,}$", value)
+    if channel_match:
+        return ("channel_id", value)
+
+    handle_match = re.match(r"^@?[A-Za-z0-9._-]{3,}$", value)
+    if handle_match and value.startswith("@"):
+        return ("handle", value.lstrip("@"))
+
+    if value.startswith("http://") or value.startswith("https://"):
+        parsed = urlparse(value)
+        path = parsed.path.strip("/")
+        if path.startswith("channel/"):
+            channel_id = path.split("/", 1)[1]
+            if channel_id:
+                return ("channel_id", channel_id)
+        if path.startswith("@"):
+            return ("handle", path.lstrip("@"))
+
+    return ("query", value)
 
 
 def extract_playlist_id(value: str) -> str:
@@ -72,6 +99,77 @@ def _iter_playlist_video_ids(api_key: str, playlist_id: str) -> Iterable[str]:
 def _chunks(values: List[str], chunk_size: int) -> Iterable[List[str]]:
     for index in range(0, len(values), chunk_size):
         yield values[index : index + chunk_size]
+
+
+def discover_channel_playlists(api_key: str, channel_input: str) -> List[Dict[str, str]]:
+    """Discover public playlists from a channel ID, handle, URL, or search query."""
+    ref_type, ref_value = extract_channel_reference(channel_input)
+    if not ref_value:
+        raise YouTubeApiError("Please provide a channel URL, handle, or channel ID.")
+
+    channel_id = ""
+    if ref_type == "channel_id":
+        channel_id = ref_value
+    elif ref_type == "handle":
+        payload = _get(
+            "channels",
+            {
+                "part": "id",
+                "forHandle": ref_value,
+                "maxResults": "1",
+                "key": api_key,
+            },
+        )
+        items = payload.get("items", [])
+        if items:
+            channel_id = items[0].get("id", "")
+    elif ref_type == "query":
+        search_payload = _get(
+            "search",
+            {
+                "part": "snippet",
+                "type": "channel",
+                "q": ref_value,
+                "maxResults": "1",
+                "key": api_key,
+            },
+        )
+        items = search_payload.get("items", [])
+        if items:
+            channel_id = items[0].get("snippet", {}).get("channelId", "")
+
+    if not channel_id:
+        raise YouTubeApiError("Unable to resolve channel. Try a full channel URL or channel ID.")
+
+    next_page_token = ""
+    playlists: List[Dict[str, str]] = []
+    while True:
+        params = {
+            "part": "snippet,contentDetails",
+            "channelId": channel_id,
+            "maxResults": "50",
+            "key": api_key,
+        }
+        if next_page_token:
+            params["pageToken"] = next_page_token
+
+        payload = _get("playlists", params)
+        for item in payload.get("items", []):
+            playlists.append(
+                {
+                    "playlist_id": item.get("id", ""),
+                    "title": item.get("snippet", {}).get("title", ""),
+                    "video_count": str(item.get("contentDetails", {}).get("itemCount", 0)),
+                }
+            )
+
+        next_page_token = payload.get("nextPageToken", "")
+        if not next_page_token:
+            break
+
+    playlists = [item for item in playlists if item.get("playlist_id")]
+    playlists.sort(key=lambda item: item.get("title", "").lower())
+    return playlists
 
 
 def fetch_playlist_videos_with_stats(api_key: str, playlist_id: str) -> pd.DataFrame:
