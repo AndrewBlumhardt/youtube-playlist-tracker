@@ -1,6 +1,6 @@
 # YouTube Playlist Tracker
 
-YouTube Playlist Tracker is a local analytics app that turns public playlist data into a clear growth story. You can discover channels, select playlists, pull per-video metrics, save historical snapshots, and visualize trends over time with a Streamlit dashboard, while the companion notebook provides a quick run-once path for validation and ad-hoc analysis.
+YouTube Playlist Tracker uses your YouTube Data API key to pull views and likes for videos in any public playlist (video collection). You can enter your channel to list all of your playlists, or provide the URL/ID of any public playlist directly. The app can also generate randomized historical trend estimates, save snapshots locally, and help you track activity over time through charts and timeline views. The roadmap includes scheduled queries, durable data storage, and a WordPress plugin option.
 
 <p align="center">
   <img src="images/S0.png" width="70%" alt="API configuration and channel discovery" />
