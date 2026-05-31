@@ -1,8 +1,6 @@
 # YouTube Playlist Tracker
 
-Explore public YouTube playlist performance with two run options:
-1. Streamlit web app in VS Code (interactive dashboard).
-2. Jupyter notebook in VS Code (run-once validation and snapshots).
+YouTube Playlist Tracker is a local analytics app that turns public playlist data into a clear growth story. You can discover channels, select playlists, pull per-video metrics, save historical snapshots, and visualize trends over time with a Streamlit dashboard, while the companion notebook provides a quick run-once path for validation and ad-hoc analysis.
 
 <p align="center">
   <img src="images/S0.png" width="70%" alt="API configuration and channel discovery" />
